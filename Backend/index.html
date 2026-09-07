@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Fact Knowledge Layer</title>
+<style>
+  body { font-family: -apple-system, Segoe UI, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 16px; color: #1a1a1a; }
+  h1 { font-size: 22px; }
+  h2 { font-size: 16px; margin-top: 32px; border-bottom: 1px solid #ddd; padding-bottom: 6px;}
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+  .quote { background: #f7f7f7; border-left: 3px solid #999; padding: 6px 10px; margin-top: 6px; font-size: 13px; color: #444; }
+  .meta { font-size: 12px; color: #777; margin-top: 4px; }
+  .tag { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; margin-right:6px; }
+  .corroborates { background:#d4f4dd; color:#1e6b34; }
+  .contradicts { background:#fbdada; color:#a3271f; }
+  .reconciled { background:#fde9c8; color:#8a5a00; }
+  select, button, input { font-size:14px; padding:6px 10px; margin-right:8px; }
+  #status { font-size:13px; color:#777; }
+</style>
+</head>
+<body>
+<h1>Fact Knowledge Layer</h1>
+<p>Upload a PDF, then browse extracted facts and cross-document relationships.</p>
+
+<input type="file" id="fileInput" accept="application/pdf">
+<button onclick="upload()">Upload & Process</button>
+<span id="status"></span>
+
+<h2>Documents</h2>
+<div id="documents"></div>
+
+<h2>Facts <select id="docFilter" onchange="loadFacts()"><option value="">Select a document...</option></select></h2>
+<div id="facts"></div>
+
+<h2>Relationships
+  <select id="relFilter" onchange="loadRelationships()">
+    <option value="">All</option>
+    <option value="corroborates">Corroborates</option>
+    <option value="contradicts">Contradicts</option>
+    <option value="reconciled">Reconciled</option>
+  </select>
+</h2>
+<div id="relationships"></div>
+
+<h2>Failures (extraction / reasoning issues found)</h2>
+<div id="failures"></div>
+
+<script>
+const API = "";
+
+async function upload() {
+  const input = document.getElementById("fileInput");
+  if (!input.files.length) return alert("Choose a PDF first.");
+  const form = new FormData();
+  form.append("file", input.files[0]);
+  document.getElementById("status").innerText = "Processing... this calls the LLM per page, may take a bit.";
+  const res = await fetch(API + "/documents", { method: "POST", body: form });
+  const doc = await res.json();
+  document.getElementById("status").innerText = "Done: " + doc.filename + " (" + doc.status + ")";
+  await loadDocuments();
+  await loadRelationships();
+  await loadFailures();
+}
+
+async function loadDocuments() {
+  const res = await fetch(API + "/documents");
+  const docs = await res.json();
+  document.getElementById("documents").innerHTML = docs.map(d =>
+    `<div class="card"><b>${d.filename}</b> — ${d.status} — ${d.page_count || "?"} pages (doc id ${d.id})</div>`
+  ).join("") || "<i>No documents yet.</i>";
+
+  const sel = document.getElementById("docFilter");
+  sel.innerHTML = '<option value="">Select a document...</option>' +
+    docs.map(d => `<option value="${d.id}">${d.filename}</option>`).join("");
+}
+
+async function loadFacts() {
+  const docId = document.getElementById("docFilter").value;
+  if (!docId) { document.getElementById("facts").innerHTML = ""; return; }
+  const res = await fetch(API + `/documents/${docId}/facts`);
+  const facts = await res.json();
+  document.getElementById("facts").innerHTML = facts.map(f => `
+    <div class="card">
+      <b>${f.subject || "?"}</b> — ${f.metric || "?"}: <b>${f.value || "?"} ${f.unit || ""}</b>
+      <div class="meta">period: ${f.period || "n/a"} · scope: ${f.scope || "n/a"} · page ${f.page} · confidence ${f.confidence}</div>
+      <div class="quote">"${f.quote}"</div>
+    </div>
+  `).join("") || "<i>No facts extracted for this document.</i>";
+}
+
+async function loadRelationships() {
+  const type = document.getElementById("relFilter").value;
+  const res = await fetch(API + "/relationships" + (type ? `?type=${type}` : ""));
+  const rels = await res.json();
+  document.getElementById("relationships").innerHTML = rels.map(r => `
+    <div class="card">
+      <span class="tag ${r.type}">${r.type}</span>
+      <div class="meta" style="margin-top:8px;">Fact A (doc ${r.fact_a.doc_id}, page ${r.fact_a.page}): ${r.fact_a.subject} — ${r.fact_a.metric}: ${r.fact_a.value} ${r.fact_a.unit || ""}</div>
+      <div class="quote">"${r.fact_a.quote}"</div>
+      <div class="meta" style="margin-top:8px;">Fact B (doc ${r.fact_b.doc_id}, page ${r.fact_b.page}): ${r.fact_b.subject} — ${r.fact_b.metric}: ${r.fact_b.value} ${r.fact_b.unit || ""}</div>
+      <div class="quote">"${r.fact_b.quote}"</div>
+      <div class="meta" style="margin-top:8px;"><b>Explanation:</b> ${r.explanation} (confidence ${r.confidence})</div>
+    </div>
+  `).join("") || "<i>No relationships found yet.</i>";
+}
+
+async function loadFailures() {
+  const res = await fetch(API + "/failures");
+  const failures = await res.json();
+  document.getElementById("failures").innerHTML = failures.map(f => `
+    <div class="card">
+      <span class="tag contradicts">${f.stage}</span>
+      <div class="meta">${f.detail}</div>
+      ${f.raw_snippet ? `<div class="quote">${f.raw_snippet}</div>` : ""}
+    </div>
+  `).join("") || "<i>No failures logged.</i>";
+}
+
+loadDocuments();
+loadRelationships();
+loadFailures();
+</script>
+</body>
+</html>
