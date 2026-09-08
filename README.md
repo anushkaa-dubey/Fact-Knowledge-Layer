@@ -4,6 +4,9 @@ A system that ingests PDFs, extracts atomic facts, grounds each in exact
 source evidence, and reasons about how facts relate across documents
 (corroborate / contradict / reconcilable via context).
 
+<img width="512" height="334" alt="image" src="https://github.com/user-attachments/assets/9f6db7e6-5ad5-4622-a6f5-60dad2218c07" />
+
+
 ## Setup and Run Instructions
 
 ```bash
