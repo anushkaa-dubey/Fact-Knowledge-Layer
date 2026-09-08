@@ -7,7 +7,6 @@ replacing this module only -- nothing else in the app talks to the DB file
 directly.
 """
 import sqlite3
-import json
 import os
 from contextlib import contextmanager
 from typing import Optional
@@ -55,7 +54,7 @@ CREATE TABLE IF NOT EXISTS relationships (
 CREATE TABLE IF NOT EXISTS failures (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     doc_id INTEGER REFERENCES documents(id),
-    stage TEXT,               -- extraction | normalization | reasoning
+    stage TEXT,               -- extraction | extraction_filtered | normalization | reasoning | pipeline
     detail TEXT,
     raw_snippet TEXT
 );
@@ -196,7 +195,10 @@ def get_relationships(rel_type: Optional[str] = None) -> list:
         return result
 
 
-def get_failures() -> list:
+def get_failures(stage: Optional[str] = None) -> list:
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM failures").fetchall()
+        if stage:
+            rows = conn.execute("SELECT * FROM failures WHERE stage=?", (stage,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM failures").fetchall()
         return [dict(r) for r in rows]

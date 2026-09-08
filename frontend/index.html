@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fact Knowledge Layer</title>
+
+  <link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div>
+        <div class="eyebrow">KNOWLEDGE SYSTEM</div>
+        <h1>Fact Knowledge Layer</h1>
+        <p class="subtitle">
+          Extract, normalize and reason over facts across documents.
+        </p>
+      </div>
+    </header>
+
+
+    <!-- Stats -->
+    <section class="summary" id="summary">
+      <div class="stat-card">
+        <span class="stat-label">Documents</span>
+        <strong>—</strong>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">Facts</span>
+        <strong>—</strong>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">Relationships</span>
+        <strong>—</strong>
+      </div>
+
+      <div class="stat-card">
+        <span class="stat-label">Failures</span>
+        <strong>—</strong>
+      </div>
+    </section>
+
+
+    <!-- Upload -->
+    <section class="panel upload-panel">
+
+      <div class="panel-heading">
+        <div>
+          <h2>Process a document</h2>
+          <p>Upload a PDF to extract evidence-grounded facts.</p>
+        </div>
+      </div>
+
+      <div class="upload-area">
+
+        <input type="file" id="fileInput" accept="application/pdf">
+
+        <label for="fileInput" class="file-label">
+          <span class="file-icon">+</span>
+
+          <span>
+            <strong id="fileName">Choose a PDF</strong>
+            <small>PDF documents only</small>
+          </span>
+        </label>
+
+        <button class="btn primary" onclick="upload()">
+          Upload & Process
+        </button>
+
+      </div>
+
+      <div class="actions">
+
+        <button class="btn secondary" onclick="rerunReasoning()">
+          Re-run reasoning
+        </button>
+
+        <button class="btn danger" onclick="resetAll()">
+          Reset all data
+        </button>
+
+        <span id="status" class="status"></span>
+
+      </div>
+
+    </section>
+
+
+    <!-- Documents -->
+    <section class="panel">
+
+      <div class="section-header">
+        <div>
+          <h2>Documents</h2>
+          <p>Uploaded documents and processing status.</p>
+        </div>
+      </div>
+
+      <div id="documents" class="document-list"></div>
+
+    </section>
+
+
+    <!-- Facts -->
+    <section class="panel">
+
+      <div class="section-header">
+
+        <div>
+          <h2>Extracted Facts</h2>
+          <p>Facts with source evidence and normalization metadata.</p>
+        </div>
+
+        <select id="docFilter" onchange="loadFacts()">
+          <option value="">Select a document...</option>
+        </select>
+
+      </div>
+
+      <div id="facts" class="fact-list"></div>
+
+    </section>
+
+
+    <!-- Relationships -->
+    <section class="panel">
+
+      <div class="section-header">
+
+        <div>
+          <h2>Cross-document Relationships</h2>
+          <p>Corroboration, contradiction and reconciliation between facts.</p>
+        </div>
+
+        <select id="relFilter" onchange="loadRelationships()">
+          <option value="">All types</option>
+          <option value="corroborates">Corroborates</option>
+          <option value="contradicts">Contradicts</option>
+          <option value="reconciled">Reconciled</option>
+        </select>
+
+      </div>
+
+      <div id="relationships" class="relationship-list"></div>
+
+    </section>
+
+
+    <!-- Failures -->
+    <section class="panel">
+
+      <div class="section-header">
+
+        <div>
+          <h2>Failures & Discards</h2>
+          <p>Extraction, normalization and pipeline failures.</p>
+        </div>
+
+        <select id="failureFilter" onchange="loadFailures()">
+          <option value="">All stages</option>
+          <option value="extraction">Extraction</option>
+          <option value="extraction_filtered">Filtered</option>
+          <option value="normalization">Normalization</option>
+          <option value="reasoning">Reasoning</option>
+          <option value="pipeline">Pipeline</option>
+        </select>
+
+      </div>
+
+      <div id="failures" class="failure-list"></div>
+
+    </section>
+
+  </div>
+
+
+  <script>
+
+    const API = "";
+
+    const truncate = (s, n) =>
+      (s && s.length > n)
+        ? s.slice(0, n) + "…"
+        : (s || "");
+
+
+    /* -----------------------------
+       File picker
+    ----------------------------- */
+
+    document.getElementById("fileInput").addEventListener("change", function () {
+
+      const fileName = document.getElementById("fileName");
+
+      if (this.files.length) {
+        fileName.textContent = this.files[0].name;
+      } else {
+        fileName.textContent = "Choose a PDF";
+      }
+
+    });
+
+
+    /* -----------------------------
+       Refresh
+    ----------------------------- */
+
+    async function refreshAll() {
+
+      await Promise.all([
+        loadSummary(),
+        loadDocuments(),
+        loadRelationships(),
+        loadFailures()
+      ]);
+
+    }
+
+
+    /* -----------------------------
+       Upload
+    ----------------------------- */
+
+    async function upload() {
+
+      const input = document.getElementById("fileInput");
+
+      if (!input.files.length) {
+        alert("Please choose a PDF first.");
+        return;
+      }
+
+      const form = new FormData();
+      form.append("file", input.files[0]);
+
+      setStatus("Processing document...", true);
+
+      try {
+
+        const res = await fetch(
+          API + "/documents",
+          {
+            method: "POST",
+            body: form
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error("Upload failed.");
+        }
+
+        const doc = await res.json();
+
+        setStatus(
+          `Processed ${doc.filename} successfully.`,
+          false
+        );
+
+        input.value = "";
+        document.getElementById("fileName").textContent = "Choose a PDF";
+
+        await refreshAll();
+
+      } catch (error) {
+
+        setStatus(error.message, false);
+
+      }
+
+    }
+
+
+    /* -----------------------------
+       Reasoning
+    ----------------------------- */
+
+    async function rerunReasoning() {
+
+      setStatus("Re-running cross-document reasoning...", true);
+
+      try {
+
+        const res = await fetch(
+          API + "/reasoning/rerun",
+          {
+            method: "POST"
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error("Reasoning failed.");
+        }
+
+        const result = await res.json();
+
+        setStatus(
+          `Created ${result.relationships_created} relationships.`,
+          false
+        );
+
+        await refreshAll();
+
+      } catch (error) {
+
+        setStatus(error.message, false);
+
+      }
+
+    }
+
+
+    /* -----------------------------
+       Reset
+    ----------------------------- */
+
+    async function resetAll() {
+
+      if (
+        !confirm(
+          "This will delete all documents, facts, relationships and failures. Continue?"
+        )
+      ) {
+        return;
+      }
+
+      try {
+
+        await fetch(
+          API + "/admin/reset",
+          {
+            method: "POST"
+          }
+        );
+
+        setStatus("All data has been reset.", false);
+
+        document.getElementById("facts").innerHTML = "";
+
+        document.getElementById("docFilter").innerHTML =
+          '<option value="">Select a document...</option>';
+
+        await refreshAll();
+
+      } catch (error) {
+
+        setStatus("Reset failed.", false);
+
+      }
+
+    }
+
+
+    /* -----------------------------
+       Status
+    ----------------------------- */
+
+    function setStatus(message, loading = false) {
+
+      const status = document.getElementById("status");
+
+      status.innerHTML = loading
+        ? `<span class="spinner"></span>${message}`
+        : message;
+
+    }
+
+
+    /* -----------------------------
+       Summary
+    ----------------------------- */
+
+    async function loadSummary() {
+
+      const res = await fetch(API + "/summary");
+      const s = await res.json();
+
+      document.getElementById("summary").innerHTML = `
+
+        <div class="stat-card">
+            <span class="stat-label">Documents</span>
+            <strong>${s.documents}</strong>
+        </div>
+
+        <div class="stat-card">
+            <span class="stat-label">Facts</span>
+            <strong>${s.facts}</strong>
+        </div>
+
+        <div class="stat-card">
+            <span class="stat-label">Relationships</span>
+            <strong>${s.relationships}</strong>
+        </div>
+
+        <div class="stat-card">
+            <span class="stat-label">Failures</span>
+            <strong>${s.failures}</strong>
+        </div>
+
+    `;
+
+    }
+
+
+    /* -----------------------------
+       Documents
+    ----------------------------- */
+
+    async function loadDocuments() {
+
+      const res = await fetch(API + "/documents");
+      const docs = await res.json();
+
+      const container = document.getElementById("documents");
+
+      if (!docs.length) {
+
+        container.innerHTML =
+          '<div class="empty">No documents uploaded yet.</div>';
+
+      } else {
+
+        container.innerHTML = docs.map(d => `
+
+            <div class="document-row">
+
+                <div class="document-main">
+
+                    <div class="document-icon">
+                        PDF
+                    </div>
+
+                    <div>
+                        <strong>${d.filename}</strong>
+
+                        <div class="document-meta">
+                            ${d.page_count ?? "?"} pages
+                            <span>•</span>
+                            Document ID ${d.id}
+                        </div>
+                    </div>
+
+                </div>
+
+                <span class="status-badge ${d.status}">
+                    ${d.status}
+                </span>
+
+            </div>
+
+        `).join("");
+
+      }
+
+
+      const sel = document.getElementById("docFilter");
+      const prev = sel.value;
+
+      sel.innerHTML =
+        '<option value="">Select a document...</option>' +
+        docs.map(d =>
+          `<option value="${d.id}">
+                ${d.filename}
+            </option>`
+        ).join("");
+
+      sel.value = prev;
+
+    }
+
+
+    /* -----------------------------
+       Facts
+    ----------------------------- */
+
+    async function loadFacts() {
+
+      const docId =
+        document.getElementById("docFilter").value;
+
+      const container =
+        document.getElementById("facts");
+
+      if (!docId) {
+
+        container.innerHTML =
+          '<div class="empty">Select a document to view extracted facts.</div>';
+
+        return;
+      }
+
+      const res =
+        await fetch(API + `/documents/${docId}/facts`);
+
+      const facts = await res.json();
+
+      if (!facts.length) {
+
+        container.innerHTML =
+          '<div class="empty">No facts extracted for this document.</div>';
+
+        return;
+      }
+
+
+      container.innerHTML = facts.map(f => `
+
+        <article class="fact-card">
+
+            <div class="fact-top">
+
+                <div>
+                    <div class="fact-subject">
+                        ${f.subject || "Unknown subject"}
+                    </div>
+
+                    <div class="fact-metric">
+                        ${f.metric || "Unknown metric"}
+                    </div>
+                </div>
+
+                <div class="fact-value">
+                    ${f.value ?? "—"}
+                    <small>${f.unit || ""}</small>
+                </div>
+
+            </div>
+
+
+            <div class="fact-meta">
+
+                <span>
+                    <b>Period</b>
+                    ${f.period || "Not specified"}
+                </span>
+
+                <span>
+                    <b>Scope</b>
+                    ${f.scope || "Not specified"}
+                </span>
+
+                <span>
+                    <b>Page</b>
+                    ${f.page ?? "—"}
+                </span>
+
+                <span>
+                    <b>Confidence</b>
+                    ${f.confidence ?? "—"}
+                </span>
+
+            </div>
+
+
+            <div class="evidence">
+
+                <div class="evidence-label">
+                    SOURCE EVIDENCE
+                </div>
+
+                <div class="quote">
+                    "${truncate(f.quote, 300)}"
+                </div>
+
+            </div>
+
+
+            <div class="canonical">
+
+                <span>Canonical:</span>
+
+                ${f.canonical_subject || "—"}
+                /
+                ${f.canonical_metric || "—"}
+                /
+                ${f.canonical_period || "—"}
+
+            </div>
+
+        </article>
+
+    `).join("");
+
+    }
+
+
+    /* -----------------------------
+       Relationships
+    ----------------------------- */
+
+    async function loadRelationships() {
+
+      const type =
+        document.getElementById("relFilter").value;
+
+      const url =
+        API + "/relationships" +
+        (type ? `?type=${type}` : "");
+
+      const res = await fetch(url);
+
+      const rels = await res.json();
+
+      const container =
+        document.getElementById("relationships");
+
+
+      if (!rels.length) {
+
+        container.innerHTML =
+          '<div class="empty">No relationships found.</div>';
+
+        return;
+      }
+
+
+      container.innerHTML = rels.map(r => `
+
+        <article class="relationship-card">
+
+            <div class="relationship-header">
+
+                <span class="tag ${r.type}">
+                    ${r.type}
+                </span>
+
+                <span class="confidence">
+                    Confidence ${r.confidence}
+                </span>
+
+            </div>
+
+
+            <div class="comparison">
+
+                <div class="relationship-fact">
+
+                    <div class="fact-label">
+                        DOCUMENT ${r.fact_a.doc_id}
+                        · PAGE ${r.fact_a.page}
+                    </div>
+
+                    <strong>
+                        ${r.fact_a.subject || "Unknown"}
+                    </strong>
+
+                    <span>
+                        ${r.fact_a.metric || "Unknown metric"}
+                    </span>
+
+                    <b>
+                        ${r.fact_a.value ?? "—"}
+                        ${r.fact_a.unit || ""}
+                    </b>
+
+                    <div class="mini-quote">
+                        "${truncate(r.fact_a.quote, 180)}"
+                    </div>
+
+                </div>
+
+
+                <div class="connector">
+                    ↔
+                </div>
+
+
+                <div class="relationship-fact">
+
+                    <div class="fact-label">
+                        DOCUMENT ${r.fact_b.doc_id}
+                        · PAGE ${r.fact_b.page}
+                    </div>
+
+                    <strong>
+                        ${r.fact_b.subject || "Unknown"}
+                    </strong>
+
+                    <span>
+                        ${r.fact_b.metric || "Unknown metric"}
+                    </span>
+
+                    <b>
+                        ${r.fact_b.value ?? "—"}
+                        ${r.fact_b.unit || ""}
+                    </b>
+
+                    <div class="mini-quote">
+                        "${truncate(r.fact_b.quote, 180)}"
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <div class="explanation">
+
+                <strong>Why</strong>
+
+                ${r.explanation || "No explanation provided."}
+
+            </div>
+
+        </article>
+
+    `).join("");
+
+    }
+
+
+    /* -----------------------------
+       Failures
+    ----------------------------- */
+
+    async function loadFailures() {
+
+      const stage =
+        document.getElementById("failureFilter").value;
+
+      const url =
+        API + "/failures" +
+        (stage ? `?stage=${stage}` : "");
+
+      const res = await fetch(url);
+
+      const failures = await res.json();
+
+      const container =
+        document.getElementById("failures");
+
+
+      if (!failures.length) {
+
+        container.innerHTML =
+          '<div class="empty">No failures or discarded facts.</div>';
+
+        return;
+      }
+
+
+      container.innerHTML = failures.map(f => `
+
+        <article class="failure-card">
+
+            <div class="failure-header">
+
+                <span class="tag failure-tag">
+                    ${f.stage}
+                </span>
+
+                <span class="failure-detail">
+                    ${truncate(f.detail, 240)}
+                </span>
+
+            </div>
+
+            ${f.raw_snippet
+          ? `<div class="quote">${truncate(f.raw_snippet, 200)}</div>`
+          : ""
+        }
+
+        </article>
+
+    `).join("");
+
+    }
+
+
+    refreshAll();
+
+  </script>
+
+</body>
+
+</html>
